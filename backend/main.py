@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -12,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+
+logger = logging.getLogger("mixamo_pessoal")
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -192,6 +195,11 @@ def run_blender(command: list[str], output_path: Path, failure_message: str) -> 
             detail=f"O Blender terminou sem gerar um arquivo válido. Log: {log}",
         )
 
+    if result.stdout:
+        logger.info("Blender stdout:\n%s", result.stdout[-4000:])
+    if result.stderr:
+        logger.info("Blender stderr:\n%s", result.stderr[-4000:])
+
     return result
 
 
@@ -237,6 +245,12 @@ async def convert_model(file: UploadFile = File(...)) -> dict[str, str | bool]:
 def generate_rig(request: RigRequest) -> dict[str, str | bool]:
     model_path = validate_processed_model_filename(request.modelFilename)
     validate_required_markers(request.markers)
+    logger.info(
+        "Gerando rig: model=%s exportFormat=%s markers=%s",
+        request.modelFilename,
+        request.exportFormat,
+        sorted(request.markers.keys()),
+    )
 
     rig_id = uuid.uuid4().hex
     markers_payload = {
@@ -258,6 +272,7 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
 
         preview_filename = f"{rig_id}_rig.glb"
         preview_path = RIGGED_DIR / preview_filename
+        logger.info("Gerando GLB de preview: %s", preview_filename)
         run_blender(
             [
                 "--background",
@@ -279,6 +294,7 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
         else:
             rigged_filename = f"{rig_id}_rig.fbx"
             output_path = RIGGED_DIR / rigged_filename
+            logger.info("Gerando FBX rigado: %s", rigged_filename)
             run_blender(
                 [
                     "--background",
@@ -295,6 +311,12 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
             )
             file_url = f"/api/rigged/{rigged_filename}"
 
+        logger.info(
+            "Rig gerado com sucesso: rigged=%s preview=%s exportFormat=%s",
+            rigged_filename,
+            preview_filename,
+            request.exportFormat,
+        )
         return {
             "success": True,
             "riggedFilename": rigged_filename,

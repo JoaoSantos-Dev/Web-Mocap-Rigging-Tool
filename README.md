@@ -1,6 +1,6 @@
 # Mixamo Pessoal
 
-Base das Fases 1 e 2: visualizador 3D, conversão para GLB, posicionamento de marcadores anatômicos e geração inicial de armature humanoide.
+Base das Fases 1, 2 e 2.5: visualizador 3D, conversão para GLB, posicionamento de marcadores anatômicos e geração inicial de armature humanoide refinada para teste na Unity.
 
 O sistema ainda não implementa câmera, MediaPipe, timeline, gravação de animação, autenticação, banco de dados ou exportação final. O skinning atual é apenas uma vinculação inicial simples para permitir exportar a armature com o mesh.
 
@@ -91,6 +91,15 @@ Three/glTF (x, y, z) -> Blender (x, -z, y)
 
 Essa conversão prioriza colocar o esqueleto aproximadamente no mesmo lugar do personagem. Orientação fina de bones e compatibilidade humanoide completa ficam para as próximas fases.
 
+## Refinamentos da Fase 2.5
+
+- O mesh importado é normalizado para world space antes do bind, deixando escala `1,1,1` e rotação zerada quando possível.
+- Os pontos de tronco, peito, pescoço, cabeça, quadris, mãos e pés são derivados dos marcadores com proporções mais previsíveis.
+- Bones sequenciais são conectados no Blender quando os pontos coincidem sem deslocar o osso.
+- O script recalcula bone roll com `GLOBAL_POS_Y`, com fallback para `GLOBAL_POS_Z`.
+- O FBX é exportado com `add_leaf_bones=False`, `bake_anim=False`, `apply_unit_scale=True`, `use_space_transform=True` e somente `ARMATURE` + `MESH`.
+- Existe uma action opcional de teste chamada `Rig_Test_Pose`, ativada apenas se `MIXAMO_CREATE_TEST_POSE=1` estiver definido no ambiente do Blender.
+
 ## Marcadores obrigatórios
 
 A interface mostra os nomes em português. O JSON exportado preserva as chaves técnicas abaixo:
@@ -128,6 +137,7 @@ O JSON exportado segue este formato:
 - A centralização e o enquadramento são básicos, baseados na bounding box do modelo.
 - A armature é gerada com hierarquia humanoide inicial, mas o ajuste fino de orientação dos bones ainda é básico.
 - O skinning automático completo ainda não está implementado; o script cria uma vinculação simples por proximidade para teste.
+- A conexão visual de bones pode não ser preservada do mesmo jeito quando o FBX é reimportado no Blender/Unity, mas a hierarquia e os nomes são exportados sem leaf bones extras.
 - Não há animação, captura por câmera, MediaPipe ou timeline.
 
 ## Próxima fase

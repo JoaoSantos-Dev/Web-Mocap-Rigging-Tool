@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mixamo Pessoal</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div>
+          <h1>Mixamo Pessoal</h1>
+          <p>Visualizador, conversão e marcadores</p>
+        </div>
+        <button id="resetCameraButton" class="button button-secondary" type="button">
+          Resetar câmera
+        </button>
+      </header>
+
+      <main class="app-layout">
+        <section class="workspace" aria-label="Área 3D">
+          <form id="uploadForm" class="upload-bar">
+            <label class="file-field">
+              <span>Modelo 3D</span>
+              <span class="file-control">
+                <input
+                  id="modelFileInput"
+                  name="file"
+                  type="file"
+                  accept=".obj,.fbx,.glb,.gltf"
+                />
+                <span class="file-button">Escolher arquivo</span>
+                <span id="selectedFileName" class="selected-file-name">
+                  Nenhum arquivo selecionado
+                </span>
+              </span>
+            </label>
+            <button id="uploadButton" class="button button-primary" type="submit">
+              Converter e carregar
+            </button>
+            <span class="accepted-formats">Formatos aceitos: .obj, .fbx, .glb e .gltf</span>
+          </form>
+
+          <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
+          <div id="viewer" class="viewer"></div>
+        </section>
+
+        <aside class="marker-panel" aria-label="Marcadores anatômicos">
+          <div class="panel-heading">
+            <h2>Marcadores</h2>
+            <span id="markerCount" class="marker-count">0/12</span>
+          </div>
+          <div id="markerList" class="marker-list"></div>
+          <div class="rig-controls">
+            <label class="select-field" for="rigFormatSelect">
+              <span>Formato do rig</span>
+              <select id="rigFormatSelect">
+                <option value="glb">GLB para preview</option>
+                <option value="fbx">FBX para Unity/Blender</option>
+              </select>
+            </label>
+            <button id="generateRigButton" class="button button-primary" type="button" disabled>
+              Gerar Rig
+            </button>
+            <a id="downloadRigLink" class="button button-secondary download-link" href="#" hidden>
+              Baixar rig
+            </a>
+          </div>
+          <button id="exportMarkersButton" class="button button-primary export-button" type="button">
+            Exportar JSON dos marcadores
+          </button>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

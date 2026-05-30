@@ -27,6 +27,8 @@ export class SceneManager {
     this.clickTargets = [];
     this.modelSize = 1;
     this.lastCameraState = null;
+    this.clock = new THREE.Clock();
+    this.updateCallbacks = new Set();
 
     this.markerGroup = new THREE.Group();
     this.markerGroup.name = "AnatomicalMarkers";
@@ -171,8 +173,17 @@ export class SceneManager {
 
   animate() {
     requestAnimationFrame(() => this.animate());
+    const delta = this.clock.getDelta();
+    for (const callback of this.updateCallbacks) {
+      callback(delta);
+    }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  addUpdateCallback(callback) {
+    this.updateCallbacks.add(callback);
+    return () => this.updateCallbacks.delete(callback);
   }
 
   disposeObject(object) {

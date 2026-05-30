@@ -215,12 +215,13 @@ select:disabled {
 
 .marker-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(160px, 1fr) auto auto auto auto;
   gap: 14px;
   min-width: 0;
   padding: 18px;
   border-left: 1px solid #d5d0c6;
   background: #ffffff;
+  overflow-y: auto;
 }
 
 .panel-heading {
@@ -335,6 +336,106 @@ select:disabled {
 
 .download-link[hidden] {
   display: none;
+}
+
+.rig-diagnostics-panel,
+.rig-pose-test-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid #e1ddd5;
+}
+
+.rig-diagnostics-panel[hidden],
+.rig-pose-test-panel[hidden] {
+  display: none;
+}
+
+.rig-diagnostics-panel h2,
+.rig-pose-test-panel h2 {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 760;
+}
+
+.diagnostics-summary,
+.diagnostics-mesh-list,
+.diagnostics-mesh-row {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostics-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 7px 8px;
+  border: 1px solid #ddd8ce;
+  border-radius: 6px;
+  background: #fbfaf7;
+  color: #5b554d;
+  font-size: 0.78rem;
+}
+
+.diagnostics-metric span,
+.diagnostics-metric strong {
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-metric strong {
+  color: #24211e;
+  font-size: 0.82rem;
+  font-weight: 760;
+  text-align: right;
+}
+
+.diagnostics-mesh-row {
+  padding: 8px;
+  border: 1px solid #d5d0c6;
+  border-radius: 6px;
+  background: #f7f5f0;
+}
+
+.diagnostics-warnings {
+  display: grid;
+  gap: 6px;
+  color: #5b554d;
+  font-size: 0.82rem;
+}
+
+.diagnostics-warnings h3 {
+  margin: 0;
+  color: #3a352f;
+  font-size: 0.84rem;
+}
+
+.diagnostics-warnings ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.diagnostics-empty {
+  margin: 0;
+  color: #6d675c;
+  font-size: 0.82rem;
+}
+
+.pose-test-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.pose-test-grid .button {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 0.82rem;
 }
 
 @media (max-width: 860px) {

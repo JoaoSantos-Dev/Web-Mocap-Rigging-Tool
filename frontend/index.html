@@ -10,7 +10,7 @@
       <header class="app-header">
         <div>
           <h1>Mixamo Pessoal</h1>
-          <p>Visualizador, conversão e marcadores</p>
+          <p>Visualizador, rigging e diagnóstico</p>
         </div>
         <button id="resetCameraButton" class="button button-secondary" type="button">
           Resetar câmera
@@ -69,6 +69,51 @@
               Baixar GLB de preview
             </a>
           </div>
+          <section id="rigDiagnosticsPanel" class="rig-diagnostics-panel" hidden></section>
+          <section id="rigPoseTestPanel" class="rig-pose-test-panel" hidden>
+            <h2>Testes de Pose</h2>
+            <div class="pose-test-grid">
+              <button class="button button-secondary" type="button" data-pose-action="reset">
+                Resetar pose
+              </button>
+              <button class="button button-secondary" type="button" data-pose="leftArm">
+                Testar braço esquerdo
+              </button>
+              <button class="button button-secondary" type="button" data-pose="rightArm">
+                Testar braço direito
+              </button>
+              <button class="button button-secondary" type="button" data-pose="leftElbow">
+                Testar cotovelo esquerdo
+              </button>
+              <button class="button button-secondary" type="button" data-pose="rightElbow">
+                Testar cotovelo direito
+              </button>
+              <button class="button button-secondary" type="button" data-pose="leftLeg">
+                Testar perna esquerda
+              </button>
+              <button class="button button-secondary" type="button" data-pose="rightLeg">
+                Testar perna direita
+              </button>
+              <button class="button button-secondary" type="button" data-pose="leftKnee">
+                Testar joelho esquerdo
+              </button>
+              <button class="button button-secondary" type="button" data-pose="rightKnee">
+                Testar joelho direito
+              </button>
+              <button class="button button-secondary" type="button" data-pose="head">
+                Testar cabeça
+              </button>
+              <button
+                id="toggleRigActionButton"
+                class="button button-secondary"
+                type="button"
+                data-pose-action="toggleAction"
+                disabled
+              >
+                Tocar Rig_Deformation_Test
+              </button>
+            </div>
+          </section>
           <button id="exportMarkersButton" class="button button-primary export-button" type="button">
             Exportar JSON dos marcadores
           </button>

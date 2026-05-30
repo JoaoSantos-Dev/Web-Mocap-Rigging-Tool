@@ -12,7 +12,7 @@ export class ModelLoader {
         url,
         (gltf) => {
           this.sceneManager.setModel(gltf.scene);
-          resolve(gltf.scene);
+          resolve(gltf);
         },
         undefined,
         (error) => {

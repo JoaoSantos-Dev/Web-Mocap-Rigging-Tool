@@ -63,6 +63,7 @@ REPORT = {
     "success": False,
     "skinningApplied": False,
     "meshCount": 0,
+    "meshes": [],
     "vertexGroups": {},
     "weightedVertexGroups": {},
     "missingVertexGroups": {},
@@ -148,6 +149,7 @@ def normalize_scene_transforms() -> None:
     mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
     log(f"Normalizando transforms de {len(mesh_objects)} mesh(es).")
     REPORT["meshCount"] = len(mesh_objects)
+    REPORT["meshes"] = [obj.name for obj in mesh_objects]
 
     if len(mesh_objects) > 1:
         warn(

@@ -2,6 +2,8 @@ import "./styles.css";
 
 import { convertModel, generateRig, resolveModelUrl } from "./api/client.js";
 import { getMarkerLabel, MarkerManager, REQUIRED_MARKERS } from "./markers/MarkerManager.js";
+import { RigDiagnosticsPanel } from "./rig/RigDiagnosticsPanel.js";
+import { RigPoseTester } from "./rig/RigPoseTester.js";
 import { ModelLoader } from "./viewer/ModelLoader.js";
 import { SceneManager } from "./viewer/SceneManager.js";
 
@@ -15,6 +17,9 @@ const generateRigButton = document.querySelector("#generateRigButton");
 const rigFormatSelect = document.querySelector("#rigFormatSelect");
 const downloadRigLink = document.querySelector("#downloadRigLink");
 const downloadPreviewLink = document.querySelector("#downloadPreviewLink");
+const rigDiagnosticsPanelElement = document.querySelector("#rigDiagnosticsPanel");
+const rigPoseTestPanel = document.querySelector("#rigPoseTestPanel");
+const toggleRigActionButton = document.querySelector("#toggleRigActionButton");
 const statusMessage = document.querySelector("#statusMessage");
 const viewer = document.querySelector("#viewer");
 const markerList = document.querySelector("#markerList");
@@ -26,6 +31,10 @@ let isRigging = false;
 
 const sceneManager = new SceneManager(viewer);
 const modelLoader = new ModelLoader(sceneManager);
+const rigDiagnosticsPanel = new RigDiagnosticsPanel(rigDiagnosticsPanelElement);
+const rigPoseTester = new RigPoseTester(sceneManager, {
+  onWarning: (message) => showStatus(message, "warning"),
+});
 const markerManager = new MarkerManager(sceneManager, {
   onChange: updateMarkerState,
   onWarning: (message) => showStatus(message, "warning"),
@@ -56,6 +65,7 @@ uploadForm.addEventListener("submit", async (event) => {
   setUploadState(true);
   currentModelFilename = null;
   resetRigDownload();
+  resetRigValidationUi();
   showStatus("Convertendo modelo com Blender...", "info");
 
   try {
@@ -111,6 +121,7 @@ generateRigButton.addEventListener("click", async () => {
 
   setRigState(true);
   resetRigDownload();
+  resetRigValidationUi();
   showStatus("Gerando rig com skinning no Blender...", "info");
 
   try {
@@ -122,15 +133,30 @@ generateRigButton.addEventListener("click", async () => {
     });
 
     const previewUrl = response.previewUrl || (response.exportFormat === "glb" ? response.fileUrl : null);
+    const previewWarnings = [];
     if (previewUrl) {
-      await modelLoader.loadFromUrl(resolveModelUrl(previewUrl));
+      try {
+        const previewGltf = await modelLoader.loadFromUrl(resolveModelUrl(previewUrl));
+        previewWarnings.push(...rigPoseTester.setRig(previewGltf));
+      } catch (error) {
+        previewWarnings.push(
+          "Não foi possível carregar o GLB de preview no navegador. Teste o FBX no Blender/Unity.",
+        );
+      }
     }
 
+    const report = {
+      ...response,
+      warnings: [...(response.warnings || []), ...previewWarnings],
+    };
+
+    rigDiagnosticsPanel.render(report);
+    updatePoseTestUi(response);
     updateRigDownload(response);
     triggerRigDownload(response);
 
-    const warnings = Array.isArray(response.warnings) && response.warnings.length > 0
-      ? ` Avisos: ${response.warnings.join(" ")}`
+    const warnings = Array.isArray(report.warnings) && report.warnings.length > 0
+      ? ` Avisos: ${report.warnings.join(" ")}`
       : "";
     const skinningStatus = response.skinningApplied
       ? "Rig com skinning gerado."
@@ -148,6 +174,35 @@ generateRigButton.addEventListener("click", async () => {
     showStatus(error.message, "error");
   } finally {
     setRigState(false);
+  }
+});
+
+rigPoseTestPanel.addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button) {
+    return;
+  }
+
+  const poseName = button.dataset.pose;
+  const action = button.dataset.poseAction;
+
+  if (poseName) {
+    rigPoseTester.applyTestPose(poseName);
+    toggleRigActionButton.textContent = "Tocar Rig_Deformation_Test";
+    return;
+  }
+
+  if (action === "reset") {
+    rigPoseTester.resetPose();
+    toggleRigActionButton.textContent = "Tocar Rig_Deformation_Test";
+    return;
+  }
+
+  if (action === "toggleAction") {
+    const isPlaying = rigPoseTester.toggleAction("Rig_Deformation_Test");
+    toggleRigActionButton.textContent = isPlaying
+      ? "Parar Rig_Deformation_Test"
+      : "Tocar Rig_Deformation_Test";
   }
 });
 
@@ -199,6 +254,24 @@ function resetRigDownload() {
   downloadPreviewLink.removeAttribute("href");
   downloadPreviewLink.removeAttribute("download");
   downloadPreviewLink.hidden = true;
+}
+
+function resetRigValidationUi() {
+  rigPoseTester.clear();
+  rigDiagnosticsPanel.clear();
+  rigPoseTestPanel.hidden = true;
+  toggleRigActionButton.disabled = true;
+  toggleRigActionButton.textContent = "Tocar Rig_Deformation_Test";
+}
+
+function updatePoseTestUi(response) {
+  rigPoseTestPanel.hidden = false;
+
+  const hasRigAction = Array.isArray(response.actions)
+    && response.actions.includes("Rig_Deformation_Test")
+    && rigPoseTester.hasAction("Rig_Deformation_Test");
+
+  toggleRigActionButton.disabled = !hasRigAction;
 }
 
 function updateRigButtonState() {

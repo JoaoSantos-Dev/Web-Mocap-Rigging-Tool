@@ -1,6 +1,6 @@
 # Mixamo Pessoal
 
-Base das Fases 1, 2, 2.5 e 3: visualizador 3D, conversão para GLB, posicionamento de marcadores anatômicos, geração de armature humanoide e skinning automático básico.
+Base das Fases 1, 2, 2.5, 3 e 3.5: visualizador 3D, conversão para GLB, posicionamento de marcadores anatômicos, geração de armature humanoide, skinning automático básico e diagnóstico visual do rig.
 
 O sistema ainda não implementa câmera, MediaPipe, timeline, gravação de animação por vídeo, retarget, autenticação, banco de dados ou exportação final.
 
@@ -54,7 +54,8 @@ VITE_API_BASE_URL=http://localhost:8000 npm run dev
 7. Posicione todos os marcadores obrigatórios.
 8. Escolha `GLB para preview` ou `FBX para Unity/Blender`.
 9. Clique em `Gerar Rig com Skinning`.
-10. Baixe o arquivo rigado pelo botão de download.
+10. Use o painel `Diagnóstico do Rig` e os botões de teste de pose para validar o preview.
+11. Baixe o arquivo rigado pelo botão de download.
 
 Se algum marcador obrigatório estiver pendente, o frontend mostra um aviso e bloqueia a geração do rig. O botão `Exportar JSON dos marcadores` continua disponível para debug.
 
@@ -91,6 +92,25 @@ Se algum marcador obrigatório estiver pendente, o frontend mostra um aviso e bl
 5. A malha deve acompanhar o movimento, ainda que com deformação simples.
 6. A action `Rig_Deformation_Test` é exportada para facilitar a verificação de braço e perna esquerdos.
 
+## Diagnóstico visual do rig
+
+Depois de clicar em `Gerar Rig com Skinning`, o frontend exibe o painel `Diagnóstico do Rig` com:
+
+- status de skinning;
+- quantidade e lista de meshes processados;
+- quantidade de vertex groups por mesh;
+- quantidade de grupos com peso por mesh;
+- actions exportadas, incluindo `Rig_Deformation_Test` quando disponível;
+- warnings retornados pelo backend ou pelo carregamento do preview.
+
+O painel `Testes de Pose` permite aplicar rotações simples no preview GLB:
+
+- `Resetar pose` volta os bones para a pose inicial carregada no navegador.
+- Os botões de braço, cotovelo, perna, joelho e cabeça procuram os bones humanoides pelo nome e rotacionam o bone correspondente.
+- `Tocar Rig_Deformation_Test` usa `THREE.AnimationMixer` quando a action existe no GLB.
+
+Se o GLB não expuser bones/skeleton acessíveis ao Three.js, a interface mostra um aviso e mantém o FBX disponível para teste no Blender/Unity.
+
 ## Coordenadas dos marcadores
 
 Os marcadores são capturados no Three.js em coordenadas glTF, com `Y` como eixo vertical. Ao importar o GLB no Blender, o modelo passa para o espaço interno Z-up do Blender. O script `generate_rig.py` converte cada marcador assim:
@@ -101,7 +121,7 @@ Three/glTF (x, y, z) -> Blender (x, -z, y)
 
 Essa conversão prioriza colocar o esqueleto aproximadamente no mesmo lugar do personagem. Orientação fina de bones e compatibilidade humanoide completa ficam para as próximas fases.
 
-## Refinamentos da Fase 2.5 e Fase 3
+## Refinamentos da Fase 2.5, Fase 3 e Fase 3.5
 
 - O mesh importado é normalizado para world space antes do bind, deixando escala `1,1,1` e rotação zerada quando possível.
 - Os pontos de tronco, peito, pescoço, cabeça, quadris, mãos e pés são derivados dos marcadores com proporções mais previsíveis.
@@ -112,7 +132,8 @@ Essa conversão prioriza colocar o esqueleto aproximadamente no mesmo lugar do p
 - O FBX é exportado com `add_leaf_bones=False`, `apply_unit_scale=True`, `use_space_transform=True` e somente `ARMATURE` + `MESH`.
 - Se a action de teste existir, o FBX sai com `bake_anim=True`.
 - A action `Rig_Deformation_Test` tem keyframes simples para braço e perna esquerdos.
-- O endpoint retorna `skinningApplied`, `meshCount`, `vertexGroups`, `weightedVertexGroups`, `warnings` e `actions`.
+- O endpoint retorna `skinningApplied`, `meshCount`, `meshes`, `vertexGroups`, `weightedVertexGroups`, `warnings` e `actions`.
+- O frontend lê esse relatório e permite testar bones no preview GLB antes de abrir o arquivo no Blender/Unity.
 
 ## Marcadores obrigatórios
 
@@ -153,8 +174,9 @@ O JSON exportado segue este formato:
 - O skinning usa automatic weights do Blender. Ele cria deformação real, mas ainda pode produzir pesos ruins em ombros, virilha, joelhos, cotovelos, roupas e acessórios.
 - Modelos com múltiplas malhas são processados, mas o MVP tende a funcionar melhor com malha única.
 - A conexão visual de bones pode não ser preservada do mesmo jeito quando o FBX é reimportado no Blender/Unity, mas a hierarquia e os nomes são exportados sem leaf bones extras.
-- Não há animação, captura por câmera, MediaPipe ou timeline.
+- Os testes de pose do navegador são diagnósticos simples; eles não substituem validação de skinning no Blender/Unity.
+- Não há captura por câmera, MediaPipe, retargeting ou timeline.
 
 ## Próxima fase
 
-Fase 4 deve focar em refinamento de pesos por região anatômica, ferramentas de diagnóstico de deformação, melhor suporte a roupas/acessórios, validação de pose T/A e preparação mais completa para retarget/animação.
+Fase 4 deve focar em refinamento de pesos por região anatômica, melhor suporte a roupas/acessórios, validação de pose T/A e preparação mais completa para retarget/animação.

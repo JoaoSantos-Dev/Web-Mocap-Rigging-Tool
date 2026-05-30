@@ -368,6 +368,7 @@ def generate_rig(request: RigRequest) -> dict[str, object] | JSONResponse:
             "previewUrl": f"/api/rigged/{preview_filename}",
             "skinningApplied": bool(rig_report.get("skinningApplied")),
             "meshCount": rig_report.get("meshCount", 0),
+            "meshes": rig_report.get("meshes", []),
             "vertexGroups": rig_report.get("vertexGroups", {}),
             "weightedVertexGroups": rig_report.get("weightedVertexGroups", {}),
             "warnings": rig_report.get("warnings", []),

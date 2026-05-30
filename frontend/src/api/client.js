@@ -1,5 +1,21 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
+function getErrorMessage(payload, fallbackMessage) {
+  if (!payload) {
+    return fallbackMessage;
+  }
+
+  if (typeof payload.detail === "string") {
+    return payload.detail;
+  }
+
+  if (payload.error || payload.details) {
+    return [payload.error, payload.details].filter(Boolean).join(": ");
+  }
+
+  return fallbackMessage;
+}
+
 export async function convertModel(file) {
   const formData = new FormData();
   formData.append("file", file);
@@ -20,8 +36,7 @@ export async function convertModel(file) {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const detail = payload?.detail || "Não foi possível converter o modelo.";
-    throw new Error(detail);
+    throw new Error(getErrorMessage(payload, "Não foi possível converter o modelo."));
   }
 
   return payload;
@@ -47,8 +62,7 @@ export async function generateRig(payload) {
   const responsePayload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const detail = responsePayload?.detail || "Não foi possível gerar o rig.";
-    throw new Error(detail);
+    throw new Error(getErrorMessage(responsePayload, "Não foi possível gerar o rig com skinning."));
   }
 
   return responsePayload;

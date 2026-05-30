@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import traceback
 from pathlib import Path
@@ -58,28 +57,64 @@ CONNECTED_BONES = {
     "RightFoot",
 }
 
+BONE_NAMES = list(BONE_PARENT_ORDER.keys())
+
+REPORT = {
+    "success": False,
+    "skinningApplied": False,
+    "meshCount": 0,
+    "vertexGroups": {},
+    "weightedVertexGroups": {},
+    "missingVertexGroups": {},
+    "warnings": [],
+    "actions": [],
+    "exportFormat": None,
+    "outputPath": None,
+}
+
 
 def log(message: str) -> None:
     print(f"[generate_rig] {message}", flush=True)
 
 
-def read_args() -> tuple[Path, Path, Path, str]:
+def warn(message: str) -> None:
+    REPORT["warnings"].append(message)
+    log(f"AVISO: {message}")
+
+
+def read_args() -> tuple[Path, Path, Path, str, Path | None]:
     if "--" not in sys.argv:
         raise ValueError(
-            "Argumentos ausentes. Use: -- input_model_path markers_json_path output_path export_format"
+            "Argumentos ausentes. Use: -- input_model_path markers_json_path output_path export_format [report_path]"
         )
 
     args = sys.argv[sys.argv.index("--") + 1 :]
-    if len(args) != 4:
+    if len(args) not in {4, 5}:
         raise ValueError(
-            "Informe exatamente input_model_path, markers_json_path, output_path e export_format."
+            "Informe input_model_path, markers_json_path, output_path, export_format e opcionalmente report_path."
         )
 
     export_format = args[3].lower()
     if export_format not in {"glb", "fbx"}:
         raise ValueError("export_format deve ser 'glb' ou 'fbx'.")
 
-    return Path(args[0]).resolve(), Path(args[1]).resolve(), Path(args[2]).resolve(), export_format
+    report_path = Path(args[4]).resolve() if len(args) == 5 else None
+    return (
+        Path(args[0]).resolve(),
+        Path(args[1]).resolve(),
+        Path(args[2]).resolve(),
+        export_format,
+        report_path,
+    )
+
+
+def write_report(report_path: Path | None) -> None:
+    if not report_path:
+        return
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with report_path.open("w", encoding="utf-8") as report_file:
+        json.dump(REPORT, report_file, ensure_ascii=False, indent=2)
 
 
 def clear_scene() -> None:
@@ -112,6 +147,13 @@ def normalize_scene_transforms() -> None:
 
     mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
     log(f"Normalizando transforms de {len(mesh_objects)} mesh(es).")
+    REPORT["meshCount"] = len(mesh_objects)
+
+    if len(mesh_objects) > 1:
+        warn(
+            "Múltiplos meshes detectados. O MVP aplica skinning em todos, "
+            "mas os melhores resultados ainda são esperados em malha única."
+        )
 
     for obj in mesh_objects:
         world_matrix = obj.matrix_world.copy()
@@ -310,102 +352,195 @@ def calculate_bone_roll(armature: bpy.types.Object) -> None:
             log(f"Não foi possível recalcular bone roll: {fallback_exc}")
 
 
-def distance_to_segment(point: Vector, start: Vector, end: Vector) -> float:
-    segment = end - start
-    if segment.length_squared < 0.0000001:
-        return (point - start).length
-
-    factor = max(0.0, min(1.0, (point - start).dot(segment) / segment.length_squared))
-    closest = start + segment * factor
-    return (point - closest).length
+def select_only(objects: list[bpy.types.Object], active: bpy.types.Object) -> None:
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = active
 
 
 def bind_meshes_to_armature(armature: bpy.types.Object) -> None:
-    bone_segments = {
-        bone.name: (
-            armature.matrix_world @ bone.head_local,
-            armature.matrix_world @ bone.tail_local,
-        )
-        for bone in armature.data.bones
-        if bone.use_deform
-    }
-
     mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
-    log(f"Vinculando {len(mesh_objects)} mesh(es) à armature.")
+    if not mesh_objects:
+        raise RuntimeError("Automatic weights failed: nenhum mesh foi encontrado na cena.")
+
+    log(f"Aplicando Armature Deform With Automatic Weights em {len(mesh_objects)} mesh(es).")
     for obj in mesh_objects:
-        matrix_world = obj.matrix_world.copy()
-        obj.location = (0, 0, 0)
-        obj.rotation_euler = (0, 0, 0)
-        obj.scale = (1, 1, 1)
-        groups = {name: obj.vertex_groups.new(name=name) for name in bone_segments}
-        assignments = {name: [] for name in bone_segments}
+        clear_existing_skinning(obj)
+        try:
+            select_only([obj, armature], armature)
+            bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+        except Exception as exc:
+            raise RuntimeError(f"Automatic weights failed para mesh '{obj.name}': {exc}") from exc
 
-        for vertex in obj.data.vertices:
-            world_point = matrix_world @ vertex.co
-            closest_name = min(
-                bone_segments,
-                key=lambda name: distance_to_segment(world_point, *bone_segments[name]),
-            )
-            assignments[closest_name].append(vertex.index)
+        ensure_armature_modifier(obj, armature)
+        report_vertex_groups(obj)
+        log(
+            f"  Mesh processado: {obj.name}, "
+            f"vertex_groups={len(obj.vertex_groups)}, modifiers={len(obj.modifiers)}"
+        )
 
-        for name, indices in assignments.items():
-            if indices:
-                groups[name].add(indices, 1.0, "REPLACE")
+    REPORT["skinningApplied"] = any(
+        REPORT["weightedVertexGroups"].get(obj.name)
+        for obj in mesh_objects
+    )
+    if not REPORT["skinningApplied"]:
+        raise RuntimeError("Automatic weights failed: nenhum peso de vértice foi criado.")
 
+    select_only([armature], armature)
+
+
+def clear_existing_skinning(obj: bpy.types.Object) -> None:
+    for modifier in list(obj.modifiers):
+        if modifier.type == "ARMATURE":
+            obj.modifiers.remove(modifier)
+
+    for vertex_group in list(obj.vertex_groups):
+        obj.vertex_groups.remove(vertex_group)
+
+    obj.parent = None
+    obj.location = (0, 0, 0)
+    obj.rotation_euler = (0, 0, 0)
+    obj.scale = (1, 1, 1)
+
+
+def ensure_armature_modifier(obj: bpy.types.Object, armature: bpy.types.Object) -> None:
+    modifier = next(
+        (existing for existing in obj.modifiers if existing.type == "ARMATURE"),
+        None,
+    )
+    if modifier is None:
+        warn(f"Mesh '{obj.name}' não recebeu Armature Modifier automaticamente; adicionando modifier.")
         modifier = obj.modifiers.new(name="Humanoid_Armature", type="ARMATURE")
-        modifier.object = armature
-        obj.parent = armature
-        obj.matrix_world = matrix_world
-        log(f"  Mesh vinculado: {obj.name}, vertex_groups={len(groups)}")
+
+    modifier.object = armature
 
 
-def create_optional_test_pose(armature: bpy.types.Object) -> None:
-    """Cria uma action de teste apenas quando MIXAMO_CREATE_TEST_POSE=1.
+def report_vertex_groups(obj: bpy.types.Object) -> None:
+    existing_groups = [group.name for group in obj.vertex_groups]
+    existing_group_set = set(existing_groups)
+    missing = [name for name in BONE_NAMES if name not in existing_group_set]
 
-    A action fica desligada por padrão para não alterar o arquivo exportado.
-    Ela serve como estrutura para debug futuro sem introduzir animação real na
-    Fase 2.5.
+    for name in missing:
+        obj.vertex_groups.new(name=name)
+
+    if missing:
+        warn(
+            f"Mesh '{obj.name}' não recebeu vertex groups para todos os bones; "
+            f"grupos vazios adicionados: {', '.join(missing)}."
+        )
+
+    weighted_groups = set()
+    group_names = {group.index: group.name for group in obj.vertex_groups}
+    for vertex in obj.data.vertices:
+        for group_ref in vertex.groups:
+            if group_ref.weight > 0:
+                weighted_groups.add(group_names.get(group_ref.group, ""))
+
+    if not weighted_groups:
+        raise RuntimeError(f"Automatic weights failed: mesh '{obj.name}' ficou sem pesos.")
+
+    REPORT["vertexGroups"][obj.name] = [group.name for group in obj.vertex_groups]
+    REPORT["weightedVertexGroups"][obj.name] = sorted(name for name in weighted_groups if name)
+    REPORT["missingVertexGroups"][obj.name] = missing
+
+    unweighted_bones = [name for name in BONE_NAMES if name not in weighted_groups]
+    if unweighted_bones:
+        warn(
+            f"Mesh '{obj.name}' não recebeu pesos em alguns bones: "
+            f"{', '.join(unweighted_bones)}."
+        )
+
+
+def has_armature_modifier(obj: bpy.types.Object, armature: bpy.types.Object) -> bool:
+    return any(
+        modifier.type == "ARMATURE" and modifier.object == armature
+        for modifier in obj.modifiers
+    )
+
+
+def validate_skinning(armature: bpy.types.Object) -> None:
+    mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+    for obj in mesh_objects:
+        if not has_armature_modifier(obj, armature):
+            raise RuntimeError(f"Mesh '{obj.name}' não possui Armature Modifier válido.")
+
+        group_names = {group.name for group in obj.vertex_groups}
+        if not any(name in group_names for name in BONE_NAMES):
+            raise RuntimeError(f"Mesh '{obj.name}' não possui vertex groups da armature.")
+
+
+def create_deformation_test_action(armature: bpy.types.Object) -> bool:
+    """Cria a action Rig_Deformation_Test para validar deformação.
+
+    A action não é captura de movimento; ela só facilita abrir o GLB/FBX no
+    Blender/Unity e verificar se a malha acompanha braço e perna esquerdos.
     """
 
-    if os.getenv("MIXAMO_CREATE_TEST_POSE") != "1":
-        return
+    try:
+        bpy.context.view_layer.objects.active = armature
+        armature.select_set(True)
+        bpy.ops.object.mode_set(mode="POSE")
 
-    bpy.context.view_layer.objects.active = armature
-    armature.select_set(True)
-    bpy.ops.object.mode_set(mode="POSE")
-    action = bpy.data.actions.new("Rig_Test_Pose")
-    armature.animation_data_create()
-    armature.animation_data.action = action
+        action = bpy.data.actions.new("Rig_Deformation_Test")
+        armature.animation_data_create()
+        armature.animation_data.action = action
+        bpy.context.scene.frame_start = 1
+        bpy.context.scene.frame_end = 80
 
-    for frame in (1, 20):
-        bpy.context.scene.frame_set(frame)
         for pose_bone in armature.pose.bones:
             pose_bone.rotation_mode = "XYZ"
+
+        neutral_frames = (1, 40, 80)
+        for frame in neutral_frames:
+            bpy.context.scene.frame_set(frame)
+            for pose_bone in armature.pose.bones:
+                pose_bone.rotation_euler = (0, 0, 0)
+                pose_bone.keyframe_insert(data_path="rotation_euler", frame=frame)
+
+        keyed_rotations = {
+            20: {
+                "LeftUpperArm": (0.0, 0.0, 0.55),
+                "LeftLowerArm": (0.0, 0.35, 0.0),
+            },
+            60: {
+                "LeftUpperLeg": (-0.45, 0.0, 0.0),
+                "LeftLowerLeg": (0.55, 0.0, 0.0),
+            },
+        }
+        for frame, rotations in keyed_rotations.items():
+            bpy.context.scene.frame_set(frame)
+            for pose_bone in armature.pose.bones:
+                pose_bone.rotation_euler = (0, 0, 0)
+            for bone_name, rotation in rotations.items():
+                pose_bone = armature.pose.bones.get(bone_name)
+                if pose_bone:
+                    pose_bone.rotation_euler = rotation
+            for pose_bone in armature.pose.bones:
+                pose_bone.keyframe_insert(data_path="rotation_euler", frame=frame)
+
+        bpy.context.scene.frame_set(1)
+        for pose_bone in armature.pose.bones:
             pose_bone.rotation_euler = (0, 0, 0)
-            pose_bone.keyframe_insert(data_path="rotation_euler", frame=frame)
+        bpy.ops.object.mode_set(mode="OBJECT")
 
-    bpy.context.scene.frame_set(10)
-    for bone_name, rotation in {
-        "LeftUpperArm": (0, 0, 0.35),
-        "LeftLowerArm": (0, 0.25, 0),
-    }.items():
-        pose_bone = armature.pose.bones.get(bone_name)
-        if pose_bone:
-            pose_bone.rotation_mode = "XYZ"
-            pose_bone.rotation_euler = rotation
-            pose_bone.keyframe_insert(data_path="rotation_euler", frame=10)
-
-    bpy.context.scene.frame_set(1)
-    for pose_bone in armature.pose.bones:
-        pose_bone.rotation_euler = (0, 0, 0)
-    bpy.ops.object.mode_set(mode="OBJECT")
-    log("Action opcional criada: Rig_Test_Pose.")
-
-
-def export_scene(output_path: Path, export_format: str) -> None:
+        REPORT["actions"].append(action.name)
+        log("Action criada: Rig_Deformation_Test.")
+        return True
+    except Exception as exc:
+        warn(f"Não foi possível criar Rig_Deformation_Test: {exc}")
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+        return False
+def export_scene(output_path: Path, export_format: str, export_animation: bool) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="SELECT")
     log(f"Exportando arquivo {export_format.upper()}: {output_path}")
+    REPORT["exportFormat"] = export_format
+    REPORT["outputPath"] = str(output_path)
 
     if export_format == "glb":
         try:
@@ -413,7 +548,7 @@ def export_scene(output_path: Path, export_format: str) -> None:
                 filepath=str(output_path),
                 export_format="GLB",
                 export_skins=True,
-                export_animations=False,
+                export_animations=export_animation,
             )
         except TypeError:
             bpy.ops.export_scene.gltf(
@@ -434,7 +569,7 @@ def export_scene(output_path: Path, export_format: str) -> None:
             axis_forward="-Z",
             axis_up="Y",
             add_leaf_bones=False,
-            bake_anim=False,
+            bake_anim=export_animation,
             primary_bone_axis="Y",
             secondary_bone_axis="X",
             use_armature_deform_only=True,
@@ -449,14 +584,17 @@ def export_scene(output_path: Path, export_format: str) -> None:
             axis_forward="-Z",
             axis_up="Y",
             add_leaf_bones=False,
-            bake_anim=False,
+            bake_anim=export_animation,
         )
     log(f"Arquivo exportado: {output_path}")
 
 
-def main() -> None:
-    input_model_path, markers_json_path, output_path, export_format = read_args()
-
+def run_pipeline(
+    input_model_path: Path,
+    markers_json_path: Path,
+    output_path: Path,
+    export_format: str,
+) -> None:
     clear_scene()
     import_model(input_model_path)
     normalize_scene_transforms()
@@ -464,13 +602,23 @@ def main() -> None:
     bone_points, _ = build_bone_points(markers)
     armature = create_armature(bone_points)
     bind_meshes_to_armature(armature)
-    create_optional_test_pose(armature)
-    export_scene(output_path, export_format)
+    validate_skinning(armature)
+    action_created = create_deformation_test_action(armature)
+    export_scene(output_path, export_format, action_created)
+    REPORT["success"] = True
 
 
 if __name__ == "__main__":
+    report_path = None
     try:
-        main()
-    except Exception:
+        input_model_path, markers_json_path, output_path, export_format, report_path = read_args()
+        run_pipeline(input_model_path, markers_json_path, output_path, export_format)
+        write_report(report_path)
+    except Exception as exc:
+        REPORT["success"] = False
+        REPORT["error"] = "Automatic weights failed" if "Automatic weights failed" in str(exc) else "Rig generation failed"
+        REPORT["details"] = str(exc)
+        REPORT["traceback"] = traceback.format_exc()
+        write_report(report_path)
         traceback.print_exc()
         sys.exit(1)

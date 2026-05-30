@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 
@@ -203,6 +203,38 @@ def run_blender(command: list[str], output_path: Path, failure_message: str) -> 
     return result
 
 
+def rig_report_path(output_path: Path, export_format: str) -> Path:
+    return output_path.with_name(f"{output_path.stem}_{export_format}_report.json")
+
+
+def read_rig_report(report_path: Path) -> dict:
+    if not report_path.exists():
+        return {}
+
+    try:
+        with report_path.open("r", encoding="utf-8") as report_file:
+            return json.load(report_file)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Não foi possível ler relatório de rig %s: %s", report_path, exc)
+        return {
+            "warnings": [f"Não foi possível ler relatório de rig: {exc}"],
+        }
+
+
+def rig_error_response(exc: HTTPException, report_path: Path | None) -> JSONResponse:
+    report = read_rig_report(report_path) if report_path else {}
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": report.get("error") or "Falha ao gerar rig com skinning",
+            "details": report.get("details") or detail,
+            "warnings": report.get("warnings", []),
+        },
+    )
+
+
 @app.get("/api/health")
 def health() -> dict[str, bool]:
     return {"ok": True}
@@ -241,8 +273,8 @@ async def convert_model(file: UploadFile = File(...)) -> dict[str, str | bool]:
     }
 
 
-@app.post("/api/rig")
-def generate_rig(request: RigRequest) -> dict[str, str | bool]:
+@app.post("/api/rig", response_model=None)
+def generate_rig(request: RigRequest) -> dict[str, object] | JSONResponse:
     model_path = validate_processed_model_filename(request.modelFilename)
     validate_required_markers(request.markers)
     logger.info(
@@ -260,6 +292,7 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
     }
 
     temp_markers_path = None
+    last_report_path = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -272,6 +305,8 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
 
         preview_filename = f"{rig_id}_rig.glb"
         preview_path = RIGGED_DIR / preview_filename
+        preview_report_path = rig_report_path(preview_path, "glb")
+        last_report_path = preview_report_path
         logger.info("Gerando GLB de preview: %s", preview_filename)
         run_blender(
             [
@@ -283,17 +318,22 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
                 str(temp_markers_path),
                 str(preview_path),
                 "glb",
+                str(preview_report_path),
             ],
             preview_path,
             "Falha ao gerar rig GLB com Blender",
         )
+        preview_report = read_rig_report(preview_report_path)
 
         if request.exportFormat == "glb":
             rigged_filename = preview_filename
             file_url = f"/api/rigged/{rigged_filename}"
+            rig_report = preview_report
         else:
             rigged_filename = f"{rig_id}_rig.fbx"
             output_path = RIGGED_DIR / rigged_filename
+            fbx_report_path = rig_report_path(output_path, "fbx")
+            last_report_path = fbx_report_path
             logger.info("Gerando FBX rigado: %s", rigged_filename)
             run_blender(
                 [
@@ -305,10 +345,12 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
                     str(temp_markers_path),
                     str(output_path),
                     "fbx",
+                    str(fbx_report_path),
                 ],
                 output_path,
                 "Falha ao gerar rig FBX com Blender",
             )
+            rig_report = read_rig_report(fbx_report_path)
             file_url = f"/api/rigged/{rigged_filename}"
 
         logger.info(
@@ -324,7 +366,15 @@ def generate_rig(request: RigRequest) -> dict[str, str | bool]:
             "exportFormat": request.exportFormat,
             "previewFilename": preview_filename,
             "previewUrl": f"/api/rigged/{preview_filename}",
+            "skinningApplied": bool(rig_report.get("skinningApplied")),
+            "meshCount": rig_report.get("meshCount", 0),
+            "vertexGroups": rig_report.get("vertexGroups", {}),
+            "weightedVertexGroups": rig_report.get("weightedVertexGroups", {}),
+            "warnings": rig_report.get("warnings", []),
+            "actions": rig_report.get("actions", []),
         }
+    except HTTPException as exc:
+        return rig_error_response(exc, last_report_path)
     finally:
         if temp_markers_path:
             temp_markers_path.unlink(missing_ok=True)

@@ -14,6 +14,7 @@ const exportMarkersButton = document.querySelector("#exportMarkersButton");
 const generateRigButton = document.querySelector("#generateRigButton");
 const rigFormatSelect = document.querySelector("#rigFormatSelect");
 const downloadRigLink = document.querySelector("#downloadRigLink");
+const downloadPreviewLink = document.querySelector("#downloadPreviewLink");
 const statusMessage = document.querySelector("#statusMessage");
 const viewer = document.querySelector("#viewer");
 const markerList = document.querySelector("#markerList");
@@ -110,7 +111,7 @@ generateRigButton.addEventListener("click", async () => {
 
   setRigState(true);
   resetRigDownload();
-  showStatus("Gerando armature no Blender...", "info");
+  showStatus("Gerando rig com skinning no Blender...", "info");
 
   try {
     const exportFormat = rigFormatSelect.value;
@@ -128,13 +129,20 @@ generateRigButton.addEventListener("click", async () => {
     updateRigDownload(response);
     triggerRigDownload(response);
 
+    const warnings = Array.isArray(response.warnings) && response.warnings.length > 0
+      ? ` Avisos: ${response.warnings.join(" ")}`
+      : "";
+    const skinningStatus = response.skinningApplied
+      ? "Rig com skinning gerado."
+      : "Rig gerado, mas o backend não confirmou skinning.";
+
     if (response.exportFormat === "fbx") {
       showStatus(
-        "FBX gerado para teste na Unity/Blender. Download iniciado e GLB de preview carregado.",
+        `${skinningStatus} FBX baixado para teste na Unity/Blender e GLB de preview carregado.${warnings}`,
         "success",
       );
     } else {
-      showStatus("GLB rigado gerado, carregado para preview e download iniciado.", "success");
+      showStatus(`${skinningStatus} GLB carregado para preview e download iniciado.${warnings}`, "success");
     }
   } catch (error) {
     showStatus(error.message, "error");
@@ -158,7 +166,7 @@ function setUploadState(nextIsUploading) {
 
 function setRigState(nextIsRigging) {
   isRigging = nextIsRigging;
-  generateRigButton.textContent = isRigging ? "Gerando..." : "Gerar Rig";
+  generateRigButton.textContent = isRigging ? "Gerando..." : "Gerar Rig com Skinning";
   updateRigButtonState();
 }
 
@@ -167,6 +175,12 @@ function updateRigDownload(response) {
   downloadRigLink.download = response.riggedFilename;
   downloadRigLink.textContent = `Baixar rig ${response.exportFormat.toUpperCase()}`;
   downloadRigLink.hidden = false;
+
+  if (response.previewUrl && response.previewUrl !== response.fileUrl) {
+    downloadPreviewLink.href = resolveModelUrl(response.previewUrl);
+    downloadPreviewLink.download = response.previewFilename || "rig-preview.glb";
+    downloadPreviewLink.hidden = false;
+  }
 }
 
 function triggerRigDownload(response) {
@@ -182,6 +196,9 @@ function resetRigDownload() {
   downloadRigLink.removeAttribute("href");
   downloadRigLink.removeAttribute("download");
   downloadRigLink.hidden = true;
+  downloadPreviewLink.removeAttribute("href");
+  downloadPreviewLink.removeAttribute("download");
+  downloadPreviewLink.hidden = true;
 }
 
 function updateRigButtonState() {
